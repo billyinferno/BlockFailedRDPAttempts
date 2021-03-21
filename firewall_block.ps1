@@ -1,9 +1,5 @@
 # Firewall Block Script
-# This script will scan firewall log, and check any attempt on 3389 and will determine whether the
-# remote desktop connection request is a valid request or not?
-#
-# The way to identified it is to ensure that if this is coming from remote, it should have 2 connection
-# with only 1 port differences on the source port.
+# This script will open eventviewer log and look for event ID 4625
 
 # get the common configuration
 $dt = Get-Date -UFormat "%Y%m%d-%H%s"
