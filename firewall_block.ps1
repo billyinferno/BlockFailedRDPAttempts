@@ -1,17 +1,22 @@
 # Firewall Block Script
-# This script will open eventviewer log and look for event ID 4625
+# This script will scan firewall log, and check any attempt on 3389 and will determine whether the
+# remote desktop connection request is a valid request or not?
+#
+# The way to identified it is to ensure that if this is coming from remote, it should have 2 connection
+# with only 1 port differences on the source port.
 
 # get the common configuration
 $dt = Get-Date -UFormat "%Y%m%d-%H%s"
 $path = "C:\scripts\firewall_block-"+$dt+".txt"
 
 # change this if you want to strict or loosen the checkn
-$maxTries = 3
+$maxTries = 2
 
 # start transcript the Power Shell output
 Start-Transcript -Path $path
 
 $hash = @{}
+$hashEvent = @{}
 $srcHash = @{}
 
 # get the firewall rule and remote address that already registered on the firewall rule
@@ -48,7 +53,18 @@ Get-EventLog security -After (Get-Date).AddHours(-24) | where {$_.EventID -eq 46
    # start position, if so we can try to substring the event message to get the source network
    # address of the perpeptuator
    if($rmtEOF -gt $rmtLocation) {
-      $rmtLen = $rmtEOF - $rmtLocation
+      # try to find the username/account name that being tested
+      $acctLocation = $msg.IndexOf("Account Name:");
+      $acctLocation = $msg.IndexOf("Account Name:", ($acctLocation+20));
+      $acctLocation = $acctLocation + 13;
+      $acctEOF = $msg.IndexOf("`n", $acctLocation);
+      $acctName = "<Unknown>";
+      if($acctEOF -gt $acctLocation) {
+         $acctLen = ($acctEOF - $acctLocation)-1; # remove the \n at the end
+         $acctName = $msg.Substring($acctLocation,$acctLen).Trim();
+      }
+
+      $rmtLen = ($rmtEOF - $rmtLocation)-1; # remove the \n at the end
 
       # ip address minimum length is 7, so lesser than this we just skip the data
       if($rmtLen -gt 7) {
@@ -76,12 +92,15 @@ Get-EventLog security -After (Get-Date).AddHours(-24) | where {$_.EventID -eq 46
                $currHash = $hash[$rmtDataBlockedIp]
                $currHash = $currHash + 1
                $hash[$rmtDataBlockedIp] = $currHash
+               $hashEvent[$rmtData] = $eventTime.ToString("dd/MM/yyyy hh:mm:ss") + " using account " + $acctName;
                # Write-Host [➕] $currHash attempts for $blockedIP
             }
             else {
                # if not exists yet in our hash table, then add the remote ip address in the hash table
                $hash.add($rmtDataBlockedIp, 1)
-               Write-Host [⚠] Failed Login Attempt from $rmtDataBlockedIp at $eventTime
+               $eventMsg = $eventTime.ToString("dd/MM/yyyy hh:mm:ss") + " using account " + $acctName;
+               $hashEvent.add($rmtData, $eventMsg);
+               # Write-Host [⚠] Failed Login Attempt from $rmtData
             }
          }
       }
@@ -93,6 +112,20 @@ Get-EventLog security -After (Get-Date).AddHours(-24) | where {$_.EventID -eq 46
 }
 # scanning of the event log is finished
 Write-Host [✔] Finished Scanning
+Write-Host ════════════════════════════════════════════════════════════════════════════════
+
+Write-Host [🖨] Printing Result
+try {
+   # now loop from all the hash table that we generated above that contain list of blocked
+   # IP address based on the firewall log.
+   foreach($h in $hashEvent.GetEnumerator()) {
+      Write-Host [⚠] Failed Login Attempt from $h.name at $h.value
+   }
+}
+catch {
+   $PSCmdlet.ThrowTerminatingError($PSitem)
+}
+Write-Host [✔] Finished Printing
 Write-Host ════════════════════════════════════════════════════════════════════════════════
 
 Write-Host [⏳] Start Processing
@@ -107,10 +140,13 @@ try {
       else {
          # check how many attempt that it try
          # if < $maxTries then no need to block
-         if($h.value -gt $maxTries) {
+         if($h.value -ge $maxTries) {
              $blockIPSegment = $h.name + "/255.255.255.0"
              $ra += $blockIPSegment
-             Write-Host [🛑] Add $h.name in Blocked List with $h.value Attempts
+             Write-Host [➕] Add $h.name in Blocked List with $h.value Attempts
+         }
+         else {
+             Write-Host [➖] Skip $h.name in Blocked List with $h.value Attempts 
          }
       }
    }
