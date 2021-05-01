@@ -5,6 +5,22 @@
 # The way to identified it is to ensure that if this is coming from remote, it should have 2 connection
 # with only 1 port differences on the source port.
 
+function Get-IPGeolocation {
+    Param
+    (
+    [string]$IPAddress
+    )
+     
+    $request = Invoke-RestMethod -Method Get -Uri "http://ip-api.com/json/$IPAddress"
+     
+    [PSCustomObject]@{
+    IP      = $request.query
+    City    = $request.city
+    Country = $request.country
+    Isp     = $request.isp
+    }
+}
+
 # get the common configuration
 $dt = Get-Date -UFormat "%Y%m%d-%H%s"
 $path = "C:\scripts\firewall_block-"+$dt+".txt"
@@ -119,7 +135,8 @@ try {
    # now loop from all the hash table that we generated above that contain list of blocked
    # IP address based on the firewall log.
    foreach($h in $hashEvent.GetEnumerator()) {
-      Write-Host [⚠] Failed Login Attempt from $h.name at $h.value
+      $ipLoc = Get-IPGeolocation($h.name)
+      Write-Host [⚠] Failed Login Attempt from $h.name at $h.value from $ipLoc.Country
    }
 }
 catch {
